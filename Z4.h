@@ -173,7 +173,8 @@ namespace Z4
     {
         if (update->Type == Polygons::MessageType::Digital && update->Index == 7)
         {
-            storePreset(currentPreset);
+            if (update->Value > 0)
+                storePreset(currentPreset);
             return true;
         }
         else if (update->Type == Polygons::MessageType::Digital && update->Index == 8 && update->Value > 0)

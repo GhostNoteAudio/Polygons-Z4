@@ -1,24 +1,24 @@
 #pragma once
 
 #include "Polygons.h"
-#include "blocks/ModulatedDelay.h"
-#include "blocks/ModulatedAllpass.h"
+#include "blocks/ModulatedDelayHd.h"
+#include "blocks/ModulatedAllpassHd.h"
 #include "Constants.h"
 #include "blocks/Biquad.h"
-#include "blocks/Bitcrusher.h"
 
 using namespace Polygons;
 
 namespace Z4
 {
+    const int PRE_DIFFUSE_COUNT = 12;
+    const int ZCOUNT = 4;
+
+    DMAMEM ModulatedDelayHd<FS_MAX/8, BUFFER_SIZE> Delay[4]; // 125ms max delay
+    DMAMEM ModulatedAllpassHd<FS_MAX/10, BUFFER_SIZE> Diffuser[ZCOUNT*2]; // 100ms max delay
+
     class Z4Rev
     {
-        const static int PRE_DIFFUSE_COUNT = 12;
-        const static int ZCOUNT = 4;
-
-        ModulatedDelay<FS_MAX/16, BUFFER_SIZE> Delay[ZCOUNT];
-        ModulatedAllpass<FS_MAX/20, BUFFER_SIZE> PreDiffuser[PRE_DIFFUSE_COUNT];
-        ModulatedAllpass<FS_MAX/20, BUFFER_SIZE> Diffuser[ZCOUNT*2];
+        ModulatedAllpassHd<FS_MAX/10, BUFFER_SIZE> PreDiffuser[PRE_DIFFUSE_COUNT];    
         Biquad lpPre, lpPost, hpPre, hpPost;
 
         // Delay lengths in milliseconds, handpicked arbitrarily :)
