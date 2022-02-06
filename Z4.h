@@ -19,6 +19,7 @@ namespace Z4
 
     uint16_t Presets[Parameter::COUNT * PRESET_COUNT];\
     uint8_t currentPreset;
+    bool active;
 
     void loadPreset(int number);
     void storePreset(int number);
@@ -47,26 +48,26 @@ namespace Z4
 
     void RegisterParams()
     {
-        os.Register(Parameter::Decay,           1023, Polygons::ControlMode::Encoded, 0, 4);
+        os.Register(Parameter::Decay,           1023, Polygons::ControlMode::Encoded, 0, 1);
         os.Register(Parameter::SizeEarly,       1023, Polygons::ControlMode::Encoded, 1, 4);
         os.Register(Parameter::SizeLate,        1023, Polygons::ControlMode::Encoded, 2, 4);
         os.Register(Parameter::Diffuse,         1023, Polygons::ControlMode::Encoded, 3, 4);
 
-        os.Register(Parameter::LowCutPre,       1023, Polygons::ControlMode::Encoded, 4, 4);
-        os.Register(Parameter::HighCutPre,      1023, Polygons::ControlMode::Encoded, 5, 4);
+        os.Register(Parameter::LowCutPre,       1023, Polygons::ControlMode::Encoded, 4, 2);
+        os.Register(Parameter::HighCutPre,      1023, Polygons::ControlMode::Encoded, 5, 2);
         os.Register(Parameter::Modulate,        1023, Polygons::ControlMode::Encoded, 6, 4);
         os.Register(Parameter::Mix,             1023, Polygons::ControlMode::Encoded, 7, 4);
 
 
-        os.Register(Parameter::EarlyStages,     1023, Polygons::ControlMode::Encoded, 8, 4);
+        os.Register(Parameter::EarlyStages,     1023, Polygons::ControlMode::Encoded, 8, 8);
         os.Register(Parameter::Interpolation,   8, Polygons::ControlMode::Encoded, 9, 1);
         os.Register(Parameter::Shimmer,         8, Polygons::ControlMode::Encoded, 10, 1);
         os.Register(Parameter::InputMode,       8, Polygons::ControlMode::Encoded, 11, 1);
         
-        os.Register(Parameter::LowCutPost,      1023, Polygons::ControlMode::Encoded, 12, 4);
-        os.Register(Parameter::HighCutPost,     1023, Polygons::ControlMode::Encoded, 13, 4);
-        os.Register(Parameter::InGain,          1023, Polygons::ControlMode::Encoded, 14, 4);
-        os.Register(Parameter::OutGain,         1023, Polygons::ControlMode::Encoded, 15, 4);
+        os.Register(Parameter::LowCutPost,      1023, Polygons::ControlMode::Encoded, 12, 2);
+        os.Register(Parameter::HighCutPost,     1023, Polygons::ControlMode::Encoded, 13, 2);
+        os.Register(Parameter::InGain,          1023, Polygons::ControlMode::Encoded, 14, 2);
+        os.Register(Parameter::OutGain,         1023, Polygons::ControlMode::Encoded, 15, 2);
 
         os.Register(Parameter::Active,          1, Polygons::ControlMode::DigitalToggle, 9, 0);
         os.Register(Parameter::Freeze,          1, Polygons::ControlMode::Digital, 10, 0);
@@ -155,23 +156,37 @@ namespace Z4
         bool active = controller.GetScaledParameter(Parameter::Active) == 1;
         bool freeze = controller.GetScaledParameter(Parameter::Freeze) == 1;
         // Uses the Red LED to indicate active and freeze states
-        Polygons::pushDigital(3, active);
-        Polygons::pushDigital(6, freeze);
+        Polygons::pushDigital(5, active);
+        Polygons::pushDigital(8, freeze);
     }
 
 
-    inline void setIOConfig()
+    /*inline void setIOConfig()
     {
         int gainIn = (int8_t)controller.GetScaledParameter(Parameter::InGain) * 2;
         int gainOut = (int8_t)controller.GetScaledParameter(Parameter::OutGain);
         Polygons::codec.analogInGain(gainIn, gainIn);
         Polygons::codec.lineOutGain(gainOut, gainOut, false);
         Polygons::codec.headphoneGain(gainOut, gainOut, false);
+    }*/
+
+    inline void setParameter(uint8_t paramId, uint16_t value)
+    {
+        controller.SetParameter(paramId, value);
+        if (paramId == Parameter::Active || paramId == Parameter::Freeze)
+            setActiveFreezeLeds();
+        //if (paramId == Parameter::InGain || paramId == Parameter::OutGain)
+        //    setIOConfig();
     }
 
     inline bool handleUpdate(Polygons::ParameterUpdate* update)
     {
-        if (update->Type == Polygons::MessageType::Digital && update->Index == 7)
+        if (update->Type == Polygons::MessageType::Digital && update->Index >= 2 && update->Index <= 6)
+        {
+            // don't select pages 2-7
+            return true;
+        }
+        else if (update->Type == Polygons::MessageType::Digital && update->Index == 7)
         {
             if (update->Value > 0)
                 storePreset(currentPreset);
@@ -182,18 +197,16 @@ namespace Z4
             loadPreset((currentPreset + 1) % PRESET_COUNT);
             return true;
         }
+        else if (update->Type == Polygons::MessageType::Digital && update->Index == 9 && update->Value > 0)
+        {
+            active = !active;
+            setParameter(Parameter::Active, active ? 1 : 0);
+            return true;
+        }
 
        return false;
     }
 
-    inline void setParameter(uint8_t paramId, uint16_t value)
-    {
-        controller.SetParameter(paramId, (uint16_t)value);
-        setActiveFreezeLeds();
-        if (paramId == Parameter::InGain || paramId == Parameter::OutGain)
-            setIOConfig();
-    }
-    
     void audioCallback(int32_t** inputs, int32_t** outputs)
     {
         float scaler = (float)(1.0 / (double)SAMPLE_32_MAX);
@@ -205,6 +218,7 @@ namespace Z4
 
         float* ins[2] = {BufferInL, BufferInR};
         float* outs[2] = {BufferOutL, BufferOutR};
+
         controller.Process(ins, outs, AUDIO_BLOCK_SAMPLES);
 
         for (size_t i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
@@ -227,7 +241,7 @@ namespace Z4
             }
         }
         setPresetLed();
-        setIOConfig();
+        //setIOConfig();
     }
 
     void storePreset(int number)
@@ -265,7 +279,7 @@ namespace Z4
     inline void start()
     {
         Serial.println("Starting up - waiting for controller signal...");
-        //os.waitForControllerSignal();
+        os.waitForControllerSignal();
         setNames();
         RegisterParams();
 
@@ -281,6 +295,7 @@ namespace Z4
         
         LoadPresetsSD();
         loadPreset(0);
+        active = true;
         controller.SetParameter(Parameter::Active, 1);
         setActiveFreezeLeds();
         i2sAudioCallback = audioCallback;

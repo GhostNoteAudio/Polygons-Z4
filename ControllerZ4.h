@@ -23,6 +23,7 @@ namespace Z4
 		InputMode inputMode;
 		float inGain;
 		float outGain;
+		bool active;
 
 		uint16_t parameters[Parameter::COUNT];
 
@@ -33,6 +34,7 @@ namespace Z4
 			inputMode = InputMode::Left;
 			inGain = 1.0;
 			outGain = 1.0;
+			active = true;
 		}
 
 		int GetSamplerate()
@@ -86,6 +88,10 @@ namespace Z4
 				Serial.print("Input mode: ");
 				Serial.println((int)inputMode);
 			}
+			if (param == Parameter::Active)
+			{
+				active = value == 0 ? false : true;
+			}
 			else if (param == Parameter::InGain)
 				inGain = DB2gain(scaled);
 			else if (param == Parameter::OutGain)
@@ -94,7 +100,13 @@ namespace Z4
 
 		void Process(float** inputs, float** outputs, int bufferSize)
 		{
-			
+			if (!active)
+			{
+				Copy(outputs[0], inputs[0], bufferSize);
+				Copy(outputs[1], inputs[1], bufferSize);
+				return;
+			}
+
 			Gain(inputs[0], inGain, bufferSize);
 			Gain(inputs[1], inGain, bufferSize);
 			
