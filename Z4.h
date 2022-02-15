@@ -13,6 +13,7 @@ namespace Z4
     float BufferInR[BUFFER_SIZE];
     float BufferOutL[BUFFER_SIZE];
     float BufferOutR[BUFFER_SIZE];
+    int InputClip, OutputClip = 0;
 
     Controller controller(SAMPLERATE);
     PolyOS os;
@@ -66,7 +67,7 @@ namespace Z4
         
         os.Register(Parameter::LowCutPost,      1023, Polygons::ControlMode::Encoded, 12, 2);
         os.Register(Parameter::HighCutPost,     1023, Polygons::ControlMode::Encoded, 13, 2);
-        os.Register(Parameter::InGain,          1023, Polygons::ControlMode::Encoded, 14, 2);
+        os.Register(Parameter::InGain,          1023, Polygons::ControlMode::Encoded, 14, 4);
         os.Register(Parameter::OutGain,         1023, Polygons::ControlMode::Encoded, 15, 2);
 
         os.Register(Parameter::Active,          1, Polygons::ControlMode::DigitalToggle, 9, 0);
@@ -79,6 +80,10 @@ namespace Z4
             strcpy(dest, "Primary");
         else if (page == 1)
             strcpy(dest, "Secondary");
+        else if (page == 4 && InputClip)
+            strcpy(dest, " !!IN CLIP!!");
+        else if (page == 5 && OutputClip)
+            strcpy(dest, " !!OUT CLIP!!");
         else if (page == 7)
             strcpy(dest, "Store");
         else
@@ -161,22 +166,23 @@ namespace Z4
     }
 
 
-    /*inline void setIOConfig()
+    inline void setIOConfig()
     {
-        int gainIn = (int8_t)controller.GetScaledParameter(Parameter::InGain) * 2;
-        int gainOut = (int8_t)controller.GetScaledParameter(Parameter::OutGain);
+        int gainIn = (int8_t)(controller.GetScaledParameter(Parameter::InGain) * 2.0 + 0.0001);
+        bool isActive = controller.GetScaledParameter(Parameter::Active);
+        if (!isActive)
+            gainIn = 0;
+        
         Polygons::codec.analogInGain(gainIn, gainIn);
-        Polygons::codec.lineOutGain(gainOut, gainOut, false);
-        Polygons::codec.headphoneGain(gainOut, gainOut, false);
-    }*/
+    }
 
     inline void setParameter(uint8_t paramId, uint16_t value)
     {
         controller.SetParameter(paramId, value);
         if (paramId == Parameter::Active || paramId == Parameter::Freeze)
             setActiveFreezeLeds();
-        //if (paramId == Parameter::InGain || paramId == Parameter::OutGain)
-        //    setIOConfig();
+        if (paramId == Parameter::InGain || paramId == Parameter::Active)
+            setIOConfig();
     }
 
     inline bool handleUpdate(Polygons::ParameterUpdate* update)
@@ -214,6 +220,11 @@ namespace Z4
         {
             BufferInL[i] = inputs[0][i] * scaler;
             BufferInR[i] = inputs[1][i] * scaler;
+
+            if (fabsf(BufferInL[i]) >= 0.88 || fabsf(BufferInR[i]) >= 0.88)
+                InputClip = 10000;
+            else
+                InputClip = InputClip > 0 ? InputClip - 1 : 0;
         }
 
         float* ins[2] = {BufferInL, BufferInR};
@@ -225,6 +236,11 @@ namespace Z4
         {
             outputs[0][i] = (int)(BufferOutL[i] * SAMPLE_32_MAX);
             outputs[1][i] = (int)(BufferOutR[i] * SAMPLE_32_MAX);
+
+            if (fabsf(BufferOutL[i]) >= 0.98 || fabsf(BufferOutR[i]) >= 0.98)
+                OutputClip = 10000;
+            else
+                OutputClip = OutputClip > 0 ? OutputClip - 1 : 0;
         }
     }
 

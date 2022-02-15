@@ -70,7 +70,7 @@ namespace Z4
 
 				case Parameter::LowCutPost:			return 200 + Polygons::Response4Oct(P(param)) * 15800;
 				case Parameter::HighCutPost:		return 20 + Polygons::Response4Oct(P(param)) * 1980;
-				case Parameter::InGain:				return -20 + P(param) * 40;
+				case Parameter::InGain:				return (int)(P(param) * 40) / 2.0; // 0.5db increments
 				case Parameter::OutGain:			return -20 + P(param) * 40;
 			}
 			return parameters[param];
@@ -100,25 +100,42 @@ namespace Z4
 
 		void Process(float** inputs, float** outputs, int bufferSize)
 		{
+			// inGain applied to ADC programmable amplifier
+			//Gain(inputs[0], inGain, bufferSize);
+			//Gain(inputs[1], inGain, bufferSize);
+			
+			auto a = Buffers::Request();
+			auto b = Buffers::Request();
+			float* tempInputs[2] = {a.Ptr, b.Ptr};
+
+			if (inputMode == InputMode::Left)
+			{
+				Copy(tempInputs[0], inputs[0], bufferSize);
+				Copy(tempInputs[1], inputs[0], bufferSize);
+			}
+			else if (inputMode == InputMode::Right)
+			{
+				Copy(tempInputs[0], inputs[1], bufferSize);
+				Copy(tempInputs[1], inputs[1], bufferSize);
+			}
+			else
+			{
+				Copy(tempInputs[0], inputs[0], bufferSize);
+				Copy(tempInputs[1], inputs[1], bufferSize);
+			}
+
+			Reverb.Process(tempInputs, outputs, bufferSize);
+			
+			Gain(outputs[0], outGain, bufferSize);
+			Gain(outputs[1], outGain, bufferSize);
+
+			// We still need to do all the processing above even if effect is not active
+			// otherwise we get frozen buffers and stale data when we turn it back on
 			if (!active)
 			{
 				Copy(outputs[0], inputs[0], bufferSize);
 				Copy(outputs[1], inputs[1], bufferSize);
-				return;
 			}
-
-			Gain(inputs[0], inGain, bufferSize);
-			Gain(inputs[1], inGain, bufferSize);
-			
-			if (inputMode == InputMode::Left)
-				Copy(inputs[1], inputs[0], bufferSize);
-			else if (inputMode == InputMode::Right)
-				Copy(inputs[0], inputs[1], bufferSize);
-
-			Reverb.Process(inputs, outputs, bufferSize);
-			
-			Gain(outputs[0], outGain, bufferSize);
-			Gain(outputs[1], outGain, bufferSize);
 		}
 		
 	private:
