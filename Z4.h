@@ -8,19 +8,20 @@
 namespace Z4
 {
     const int PRESET_COUNT = 7;
-
+    
     float BufferInL[BUFFER_SIZE];
     float BufferInR[BUFFER_SIZE];
     float BufferOutL[BUFFER_SIZE];
     float BufferOutR[BUFFER_SIZE];
     int InputClip, OutputClip = 0;
+    bool PresetButtonPressed = false;
+    int PresetButtonPressTime = 0;
 
     Controller controller(SAMPLERATE);
     PolyOS os;
 
     uint16_t Presets[Parameter::COUNT * PRESET_COUNT];\
     uint8_t currentPreset;
-    bool active;
 
     void loadPreset(int number);
     void storePreset(int number);
@@ -62,7 +63,7 @@ namespace Z4
 
         os.Register(Parameter::EarlyStages,     1023, Polygons::ControlMode::Encoded, 8, 8);
         os.Register(Parameter::Interpolation,   8, Polygons::ControlMode::Encoded, 9, 1);
-        os.Register(Parameter::Shimmer,         8, Polygons::ControlMode::Encoded, 10, 1);
+        os.Register(Parameter::Shimmer,         64, Polygons::ControlMode::Encoded, 10, 1);
         os.Register(Parameter::InputMode,       8, Polygons::ControlMode::Encoded, 11, 1);
         
         os.Register(Parameter::LowCutPost,      1023, Polygons::ControlMode::Encoded, 12, 2);
@@ -82,10 +83,8 @@ namespace Z4
             strcpy(dest, "Secondary");
         else if (page == 4 && InputClip)
             strcpy(dest, " !!IN CLIP!!");
-        else if (page == 5 && OutputClip)
+        else if (page == 7 && OutputClip)
             strcpy(dest, " !!OUT CLIP!!");
-        else if (page == 7)
-            strcpy(dest, "Store");
         else
             strcpy(dest, "");
     }
@@ -124,10 +123,18 @@ namespace Z4
         }
         else if (paramId == Parameter::Shimmer)
         {
-            if (val < 0.5)
+            if (val == 0)
                 strcpy(dest, "Off");
-            else
-                strcpy(dest, "On");
+            else if (val == 1)
+                strcpy(dest, "Up");
+            else if (val == 2)
+                strcpy(dest, "Down");
+            else if (val == 3)
+                strcpy(dest, "Mix Up");
+            else if (val == 4)
+                strcpy(dest, "Mix Down");
+            else if (val == 5)
+                strcpy(dest, "Mix UpDown");
         }
         else if (paramId == Parameter::InputMode)
         {
@@ -187,26 +194,19 @@ namespace Z4
 
     inline bool handleUpdate(Polygons::ParameterUpdate* update)
     {
-        if (update->Type == Polygons::MessageType::Digital && update->Index >= 2 && update->Index <= 6)
-        {
-            // don't select pages 2-7
-            return true;
-        }
-        else if (update->Type == Polygons::MessageType::Digital && update->Index == 7)
+        if (update->Type == Polygons::MessageType::Digital && update->Index == 8)
         {
             if (update->Value > 0)
-                storePreset(currentPreset);
-            return true;
-        }
-        else if (update->Type == Polygons::MessageType::Digital && update->Index == 8 && update->Value > 0)
-        {
-            loadPreset((currentPreset + 1) % PRESET_COUNT);
-            return true;
-        }
-        else if (update->Type == Polygons::MessageType::Digital && update->Index == 9 && update->Value > 0)
-        {
-            active = !active;
-            setParameter(Parameter::Active, active ? 1 : 0);
+            {
+                PresetButtonPressed = true;
+                PresetButtonPressTime = millis();
+            }
+            if (update->Value == 0 && PresetButtonPressed)
+            {
+                PresetButtonPressed = false;
+                loadPreset((currentPreset + 1) % PRESET_COUNT);
+            }
+            
             return true;
         }
 
@@ -257,7 +257,7 @@ namespace Z4
             }
         }
         setPresetLed();
-        //setIOConfig();
+        setIOConfig();
     }
 
     void storePreset(int number)
@@ -304,14 +304,14 @@ namespace Z4
 
         os.HandleUpdateCallback = handleUpdate;
         os.SetParameterCallback = setParameter;
-        os.PageCount = 8;
+        os.PageCount = 2;
         os.menu.getPageName = getPageName;
         os.menu.getParameterName = getParameterName;
         os.menu.getParameterDisplay = getParameterDisplay;
         
         LoadPresetsSD();
         loadPreset(0);
-        active = true;
+        os.Parameters[os.getParamDigital(9)].Value = 1; // set Active toggle state to true
         controller.SetParameter(Parameter::Active, 1);
         setActiveFreezeLeds();
         i2sAudioCallback = audioCallback;
@@ -319,6 +319,15 @@ namespace Z4
 
     inline void loop()
     {
+        if (PresetButtonPressed)
+        {
+            if (millis() - PresetButtonPressTime > 2000)
+            {
+                PresetButtonPressed = false;
+                storePreset(currentPreset);
+            }
+        }
+
         os.loop();
     }
 }

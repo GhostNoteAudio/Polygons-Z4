@@ -5,6 +5,7 @@
 #include "blocks/ModulatedAllpassHd.h"
 #include "Constants.h"
 #include "blocks/Biquad.h"
+#include "GranularPitchShift.h"
 
 using namespace Polygons;
 
@@ -13,6 +14,8 @@ namespace Z4
     const int PRE_DIFFUSE_COUNT = 12;
     const int ZCOUNT = 4;
 
+    DMAMEM GranularPitchShift<8000> PitchShifter1(FS_MAX, 0.5);
+    DMAMEM GranularPitchShift<8000> PitchShifter2(FS_MAX, 2.0);
     DMAMEM ModulatedDelayHd<FS_MAX/8, BUFFER_SIZE> Delay[4]; // 125ms max delay
     DMAMEM ModulatedAllpassHd<FS_MAX/10, BUFFER_SIZE> Diffuser[ZCOUNT*2]; // 100ms max delay
 
@@ -45,6 +48,7 @@ namespace Z4
         int EarlyStages;
         bool freeze;
         float smoothedFreeze;
+        int ShimmerMode;
 
     public:
         Z4Rev(int samplerate) : lpPre(Biquad::FilterType::LowPass, samplerate), lpPost(Biquad::FilterType::LowPass6db, samplerate),
@@ -68,6 +72,7 @@ namespace Z4
             hpPost.Frequency = 20;
             smoothedFreeze = 0;
             freeze = false;
+            ShimmerMode = 0;
 
             UpdateAll();
         }
@@ -87,6 +92,12 @@ namespace Z4
             else if (paramId == Parameter::Interpolation)
             {
                 Interpolation = (int)value;
+            }
+            else if (paramId == Parameter::Shimmer)
+            {
+                ShimmerMode = (int)value;
+                Serial.print("Shimmer mode: ");
+                Serial.println(ShimmerMode);
             }
             else if (paramId == Parameter::Mix)
             {
@@ -175,8 +186,17 @@ namespace Z4
 			smoothedFreeze = smoothedFreeze * 0.95 + (int)freeze * 0.05;
             float activeKrt = smoothedFreeze + (1-smoothedFreeze) * Krt;
 
+            bool shimmerUp = (ShimmerMode == 1 || ShimmerMode == 3 || ShimmerMode == 5);
+            bool shimmerDown = (ShimmerMode == 2 || ShimmerMode == 4 || ShimmerMode == 5);
+            bool shimmerDirect = (ShimmerMode == 0 || ShimmerMode == 3 || ShimmerMode == 4 || ShimmerMode == 5);
+            float shimmerGain = 1.0 / sqrtf((shimmerUp ? 1 : 0) + (shimmerDown ? 1 : 0) + (shimmerDirect ? 1 : 0));
+
             auto tb = Buffers::Request();
+            auto tb2 = Buffers::Request();
+            auto tb3 = Buffers::Request();
             auto buf = tb.Ptr;
+            auto buf2 = tb2.Ptr;
+            auto buf3 = tb3.Ptr;
 
             Copy(buf, inputs[0], bufSize);
             Mix(buf, inputs[1], 1.0, bufSize);
@@ -193,7 +213,7 @@ namespace Z4
             preDiffIO = PreDiffuser[EarlyStages-1].GetOutput();
 
             // this compensates for fact that we take 4 output taps at full volume
-            // It also reduces the max value pushed into the delay line, since that it stored as an integer and can clip
+            // It also reduces the max value pushed into the delay line
             Gain(preDiffIO, 0.5, bufSize); 
 
             for (size_t i = 0; i < ZCOUNT; i++)
@@ -202,6 +222,20 @@ namespace Z4
                 Mix(buf, Delay[(i - 1 + ZCOUNT) % ZCOUNT].GetOutput(), activeKrt, bufSize);
                 if (i == 0)
                 {
+                    if (shimmerUp)
+                        PitchShifter2.Process(buf, buf2, bufSize);
+                    if (shimmerDown)
+                        PitchShifter1.Process(buf, buf3, bufSize);
+
+                    if (!shimmerDirect)
+                        ZeroBuffer(buf, bufSize);
+                    if (shimmerUp)
+                        Mix(buf, buf2, 1.0, bufSize);
+                    if (shimmerDown)
+                        Mix(buf, buf3, 1.0, bufSize);
+                    
+                    Gain(buf, shimmerGain, bufSize);
+
                     lpPost.Process(buf, buf, bufSize);
                     hpPost.Process(buf, buf, bufSize);
                 }

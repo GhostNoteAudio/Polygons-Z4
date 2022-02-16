@@ -65,7 +65,7 @@ namespace Z4
 
 				case Parameter::EarlyStages:		return (int)(1 + P(param) * 11.99);
 				case Parameter::Interpolation:		return (int)(P(param, 8));
-				case Parameter::Shimmer:			return (int)(P(param, 8) >= 0.5);
+				case Parameter::Shimmer:			return (int)(P(param, 64) * 5.999);
 				case Parameter::InputMode:			return (int)(P(param, 8) * 2.999);
 
 				case Parameter::LowCutPost:			return 200 + Polygons::Response4Oct(P(param)) * 15800;
