@@ -104,6 +104,22 @@ namespace Z4
             this->Samplerate = samplerate;
         }
 
+
+        inline void ResetCounter()
+        {
+            // used to periodically reduce the K value, which otherwise grows infinitely.
+            // This only becomes an issues once it hits INT_MAX, which occurs after about 12 hours of runtime.
+            // but we don't want it to ever become an issue :)
+            
+            K = K % N;
+            for (int i=0; i<GrainCount; i++)
+            {
+                float frac = Grains[i].pos - (int)Grains[i].pos;
+                Grains[i].start = Grains[i].start % N;
+                Grains[i].pos = ((int)Grains[i].pos) % N + frac;
+            }
+        }
+
         inline void Process(float* input, float* output, int bufSize)
         {
             for (int i = 0; i < bufSize; i++)
@@ -128,6 +144,9 @@ namespace Z4
 
             Gain(output, 1.0 / sqrtf(GrainCount/2.0), bufSize);
             K += bufSize;
+
+            if (K > 1000000)
+                ResetCounter();
         }
     };
 }
